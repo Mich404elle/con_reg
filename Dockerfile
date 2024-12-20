@@ -1,12 +1,3 @@
-'''
-Uses Python 3.12 slim image as base
-Sets up /app as working directory
-Installs your requirements
-Copies your code
-Exposes port 8080
-Defines how to run your app
-'''
-
 # Use official Python runtime as base image
 FROM python:3.12-slim
 
