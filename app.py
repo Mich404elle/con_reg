@@ -8,6 +8,9 @@ from bs4 import BeautifulSoup
 import glob
 import logging
 import gc #garbage collection
+from dotenv import load_dotenv
+
+load_dotenv()
 
 # Configure logging
 logging.basicConfig(level=logging.DEBUG)
@@ -154,6 +157,22 @@ precompute_embeddings()
 @app.route('/')
 def index():
     return render_template('index.html')
+
+#Health check
+@app.route('/health', methods=['GET'])
+def health_check():
+    try:
+        if not openai.api_key:
+            return jsonify({"status": "error", "message": "API key not configured"}), 500
+            
+        # Test OpenAI connection
+        test_response = openai.Embedding.create(
+            input="test",
+            model="text-embedding-ada-002"
+        )
+        return jsonify({"status": "healthy", "openai_connected": True}), 200
+    except Exception as e:
+        return jsonify({"status": "error", "message": str(e)}), 500
 
 @app.route('/chat', methods=['POST'])
 def chat():
