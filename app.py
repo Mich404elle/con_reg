@@ -72,34 +72,56 @@ def load_markdown_files(data_folder="data"):
 
 def generate_embeddings(text):
     try:
+        logger.debug("Starting generate_embeddings function")
+        logger.debug(f"Input text length: {len(text)}")
+        
         if not text.strip():
             logger.warning("Empty text provided for embedding")
             return None
             
-        # Log the text length
-        logger.debug(f"Generating embedding for text of length: {len(text)}")
+        # Log first few characters of input
+        logger.debug(f"First 100 chars of input: {text[:100]}")
         
-        # Ensure text is properly encoded
-        text = text.encode('utf-8', errors='ignore').decode('utf-8')
+        # Check API key
+        logger.debug(f"API key present: {bool(openai.api_key)}")
+        logger.debug(f"API key length: {len(openai.api_key) if openai.api_key else 0}")
         
+        # Try the API call
+        logger.debug("Attempting OpenAI API call...")
         response = openai.Embedding.create(
-            input=text[:8191],  # OpenAI's token limit
+            input=text[:8191],
             model="text-embedding-ada-002"
         )
+        logger.debug("OpenAI API call successful")
         
-        if not response.get("data") or not response["data"][0].get("embedding"):
-            logger.error(f"Unexpected response structure: {response}")
+        # Verify response structure
+        if not response.get("data"):
+            logger.error("No 'data' in response")
+            logger.error(f"Full response: {response}")
             return None
             
-        return np.array(response["data"][0]["embedding"])
+        if not response["data"][0].get("embedding"):
+            logger.error("No 'embedding' in response data")
+            logger.error(f"Response data: {response['data']}")
+            return None
+        
+        embedding = np.array(response["data"][0]["embedding"])
+        logger.debug(f"Successfully generated embedding of shape: {embedding.shape}")
+        
+        return embedding
+        
     except openai.error.InvalidRequestError as e:
-        logger.error(f"Invalid request error: {str(e)}")
+        logger.error(f"OpenAI InvalidRequestError: {str(e)}")
         return None
     except openai.error.AuthenticationError as e:
-        logger.error(f"Authentication error: {str(e)}")
+        logger.error(f"OpenAI AuthenticationError: {str(e)}")
+        return None
+    except openai.error.APIError as e:
+        logger.error(f"OpenAI APIError: {str(e)}")
         return None
     except Exception as e:
         logger.error(f"Unexpected error in generate_embeddings: {str(e)}")
+        logger.exception("Full traceback:")
         return None
 
 def precompute_embeddings():
