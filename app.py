@@ -22,6 +22,9 @@ conversation_history = {}
 
 # Set OpenAI API key directly
 openai.api_key = os.getenv('OPENAI_API_KEY')
+# Debug
+if not openai.api_key:
+    raise ValueError("OpenAI API key is not set")
 
 # Placeholder for document embeddings
 documents = []
@@ -30,31 +33,42 @@ def strip_html_tags(html_content):
     soup = BeautifulSoup(html_content, "html.parser")
     return soup.get_text()
 
+def preprocess_text(text):
+    # Remove any null bytes
+    text = text.replace('\0', '')
+    # Remove excessive whitespace
+    text = ' '.join(text.split())
+    # Ensure the text is within the token limit (approximately 8000 tokens)
+    return text[:8191]
+
 def load_markdown_files(data_folder="data"):
     logger.info(f"Loading markdown files from {data_folder}")
     os.makedirs(data_folder, exist_ok=True)
     markdown_files = glob.glob(os.path.join(data_folder, "*.md"))
-    
-    if not markdown_files:
-        logger.info(f"No markdown files found. Creating sample file...")
-        sample_file = os.path.join(data_folder, "sample.md")
-        with open(sample_file, "w", encoding="utf-8") as f:
-            f.write("# Sample Document\n\nThis is a sample document created automatically.")
-        markdown_files = [sample_file]
     
     for file_path in markdown_files:
         try:
             with open(file_path, "r", encoding="utf-8") as file:
                 content = file.read()
                 plain_text = strip_html_tags(markdown(content, output_format="html"))
+                # Add preprocessing step here
+                processed_text = preprocess_text(plain_text)
+                
+                # Add debug logging
+                logger.debug(f"Original text length: {len(plain_text)}")
+                logger.debug(f"Processed text length: {len(processed_text)}")
+                
                 documents.append({
-                    "content": plain_text, 
-                    "file_path": file_path, 
+                    "content": processed_text,
+                    "file_path": file_path,
                     "embedding": None
                 })
-                logger.info(f"Loaded: {file_path}")
+                logger.info(f"Loaded: {file_path} with {len(processed_text)} characters")
+        except UnicodeDecodeError as e:
+            logger.error(f"Encoding error in file {file_path}: {str(e)}")
         except Exception as e:
             logger.error(f"Error loading file {file_path}: {str(e)}")
+            logger.exception("Full traceback:")
 
 def generate_embeddings(text):
     try:
@@ -62,13 +76,30 @@ def generate_embeddings(text):
             logger.warning("Empty text provided for embedding")
             return None
             
+        # Log the text length
+        logger.debug(f"Generating embedding for text of length: {len(text)}")
+        
+        # Ensure text is properly encoded
+        text = text.encode('utf-8', errors='ignore').decode('utf-8')
+        
         response = openai.Embedding.create(
-            input=text[:8191],  # Silently truncates text without warning
+            input=text[:8191],  # OpenAI's token limit
             model="text-embedding-ada-002"
         )
+        
+        if not response.get("data") or not response["data"][0].get("embedding"):
+            logger.error(f"Unexpected response structure: {response}")
+            return None
+            
         return np.array(response["data"][0]["embedding"])
+    except openai.error.InvalidRequestError as e:
+        logger.error(f"Invalid request error: {str(e)}")
+        return None
+    except openai.error.AuthenticationError as e:
+        logger.error(f"Authentication error: {str(e)}")
+        return None
     except Exception as e:
-        logger.error(f"Error generating embedding: {str(e)}")
+        logger.error(f"Unexpected error in generate_embeddings: {str(e)}")
         return None
 
 def precompute_embeddings():
@@ -127,12 +158,18 @@ def chat():
             logger.error("No query provided")
             return jsonify({"error": "No query provided"}), 400
 
+        # Debug logging for query
         logger.info(f"Processing query: {user_query}")
-
-        # Get relevant document content
-        query_embedding = generate_embeddings(user_query)
+        logger.debug(f"Query length: {len(user_query)}")
+        logger.debug(f"First 100 chars of query: {user_query[:100]}")
+        
+        # Preprocess the query before embedding
+        processed_query = preprocess_text(user_query)
+        query_embedding = generate_embeddings(processed_query)
+        
         if query_embedding is None:
             logger.error("Failed to generate query embedding")
+            logger.error(f"Problematic query: {user_query}")
             return jsonify({"error": "Failed to generate query embedding"}), 500
 
         valid_documents = [doc for doc in documents if doc["embedding"] is not None]
@@ -147,9 +184,9 @@ def chat():
         best_match_index = int(np.argmax(similarities))
         best_document = valid_documents[best_match_index]
         
-        # Limit the content length of the best document (approximately 4000 tokens)
+        # Limit content length
         max_chars = 16000  # Approximate character limit (roughly 4000 tokens)
-        truncated_content = best_document["content"][:max_chars]
+        truncated_content = truncate_content(best_document["content"], max_chars)
         
         # Initialize or get conversation history
         if session_id not in conversation_history:
@@ -164,10 +201,8 @@ def chat():
             }
         ]
         
-        # Add limited conversation history (last 5 messages)
+        # Add limited conversation history
         messages.extend(conversation_history[session_id][-5:])
-        
-        # Add current query
         messages.append({"role": "user", "content": user_query})
         
         # Get response from OpenAI
@@ -178,7 +213,7 @@ def chat():
             temperature=0.7
         )
         
-        # Store the conversation (limit to last 5 messages)
+        # Store the conversation
         conversation_history[session_id].append({"role": "user", "content": user_query})
         conversation_history[session_id].append({"role": "assistant", "content": response.choices[0].message.content})
         
@@ -192,8 +227,9 @@ def chat():
 
     except Exception as e:
         logger.error(f"Error in chat endpoint: {str(e)}")
+        logger.exception("Full traceback:")  # Added full traceback logging
         return jsonify({"error": str(e)}), 500
-
+    
 if __name__ == '__main__':
     load_markdown_files()
     precompute_embeddings()
