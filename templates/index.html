@@ -1,5 +1,6 @@
 <!DOCTYPE html>
 <html lang="en">
+
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -172,7 +173,6 @@
 
             userInput.disabled = true;
             sendButton.disabled = true;
-
             addMessageToChat(message, 'user');
             userInput.value = '';
 
@@ -182,19 +182,33 @@
                     headers: {
                         'Content-Type': 'application/json',
                     },
-                    body: JSON.stringify({ query: message })
+                    body: JSON.stringify({
+                        query: message,
+                        session_id: 'default'  // Added session_id
+                    })
                 });
 
+                // Log the raw response for debugging
+                console.log('Response status:', response.status);
+
                 if (!response.ok) {
-                    throw new Error(`HTTP error! status: ${response.status}`);
+                    const errorText = await response.text();
+                    console.error('Server error response:', errorText);
+                    throw new Error(`HTTP error! status: ${response.status}, message: ${errorText}`);
                 }
 
                 const data = await response.json();
+                console.log('Server response:', data);  // Log successful response
+
+                if (data.error) {
+                    throw new Error(data.error);
+                }
+
                 addMessageToChat(data.response, 'bot', data.source);
             } catch (error) {
-                console.error('Error:', error);
+                console.error('Detailed error:', error);
                 addMessageToChat(
-                    'Sorry, there was an error processing your request. Please try again.',
+                    'Sorry, there was an error processing your request. Please try again. Error: ' + error.message,
                     'bot'
                 );
             } finally {
@@ -223,4 +237,5 @@
         window.onload = () => userInput.focus();
     </script>
 </body>
+
 </html>
