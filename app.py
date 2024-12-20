@@ -6,8 +6,8 @@ from sklearn.metrics.pairwise import cosine_similarity
 from markdown import markdown
 from bs4 import BeautifulSoup
 import glob
-import json
 import logging
+import gc #garbage collection
 
 # Configure logging
 logging.basicConfig(level=logging.DEBUG)
@@ -80,6 +80,7 @@ def precompute_embeddings():
                 logger.warning(f"Failed to generate embedding for {doc['file_path']}")
             else:
                 logger.info(f"Generated embedding for {doc['file_path']}")
+            gc.collect()  # Force garbage collection after each embedding
 
 def truncate_content(content, max_chars=16000):
     """Truncate content while preserving complete sentences"""
