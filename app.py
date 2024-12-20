@@ -194,7 +194,7 @@ def chat():
         return jsonify({"error": str(e)}), 500
 
 if __name__ == '__main__':
-    load_markdown_files()  # Load documents at startup
+    load_markdown_files()
     precompute_embeddings()
     logger.info("Starting Flask server...")
-    app.run(debug=True)
+    app.run(host='0.0.0.0', port=8080)
