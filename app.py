@@ -6,6 +6,7 @@ from sklearn.metrics.pairwise import cosine_similarity
 from markdown import markdown
 from bs4 import BeautifulSoup
 import glob
+import json
 import logging
 
 # Configure logging
@@ -80,6 +81,18 @@ def precompute_embeddings():
             else:
                 logger.info(f"Generated embedding for {doc['file_path']}")
 
+def truncate_content(content, max_chars=16000):
+    """Truncate content while preserving complete sentences"""
+    if len(content) <= max_chars:
+        return content
+        
+    truncated = content[:max_chars]
+    # Try to end at a sentence boundary
+    last_period = truncated.rfind('.')
+    if last_period > 0:
+        truncated = truncated[:last_period + 1]
+    return truncated
+
 # Load documents at startup
 load_markdown_files()
 precompute_embeddings()
@@ -107,7 +120,7 @@ def chat():
             return jsonify({"error": "No JSON data provided"}), 400
             
         user_query = data.get("query", "").strip()
-        session_id = data.get("session_id", "default")  # Add session handling
+        session_id = data.get("session_id", "default")
         
         if not user_query:
             logger.error("No query provided")
@@ -133,21 +146,25 @@ def chat():
         best_match_index = int(np.argmax(similarities))
         best_document = valid_documents[best_match_index]
         
+        # Limit the content length of the best document (approximately 4000 tokens)
+        max_chars = 16000  # Approximate character limit (roughly 4000 tokens)
+        truncated_content = best_document["content"][:max_chars]
+        
         # Initialize or get conversation history
         if session_id not in conversation_history:
             conversation_history[session_id] = []
         
-        # Construct messages with conversation history
+        # Construct messages with truncated content
         messages = [
             {
                 "role": "system",
-                "content": """You are a architecture assiatant to answer questions about the HongKong construction or architectural regulations.
-                """ + best_document["content"]
+                "content": """You are a architecture assistant to answer questions about the HongKong construction or architectural regulations.
+                """ + truncated_content
             }
         ]
         
-        # Add conversation history
-        messages.extend(conversation_history[session_id])
+        # Add limited conversation history (last 5 messages)
+        messages.extend(conversation_history[session_id][-5:])
         
         # Add current query
         messages.append({"role": "user", "content": user_query})
@@ -156,15 +173,14 @@ def chat():
         response = openai.ChatCompletion.create(
             model="gpt-3.5-turbo",
             messages=messages,
-            max_tokens=300,  # Increased for more detailed responses
+            max_tokens=300,
             temperature=0.7
         )
         
-        # Store the conversation
+        # Store the conversation (limit to last 5 messages)
         conversation_history[session_id].append({"role": "user", "content": user_query})
         conversation_history[session_id].append({"role": "assistant", "content": response.choices[0].message.content})
         
-        # Limit conversation history to last 10 messages to manage context window
         if len(conversation_history[session_id]) > 10:
             conversation_history[session_id] = conversation_history[session_id][-10:]
 
